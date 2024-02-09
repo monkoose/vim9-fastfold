@@ -119,15 +119,6 @@ for cmd in g:fastfold_fold_movement_commands
   exe $"onoremap <silent><expr> {cmd} '<ScriptCmd>UpdateWin()<CR>' .. '\"' .. v:register .. v:operator .. v:count1 .. '{cmd}'"
 endfor
 
-augroup FastFold
-  autocmd!
-  if !v:vim_did_enter
-    autocmd VimEnter * Init()
-  else
-    Init()
-  endif
-augroup end
-
 def OnWinEnter()
   w:winenterbuf = bufnr()
   if exists('b:lastfdm')
@@ -201,5 +192,14 @@ def Init()
     endif
   augroup END
 enddef
+
+augroup FastFold
+  autocmd!
+  if !v:vim_did_enter
+    autocmd VimEnter * Init()
+  else
+    Init()
+  endif
+augroup end
 
 # vim: fdm=marker
