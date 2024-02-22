@@ -1,4 +1,4 @@
-vim9script
+vim9script noclear
 
 if exists('g:loaded_fastfold')
   finish
@@ -17,7 +17,7 @@ extend(g:, {
 }, 'keep')
 # }}}
 
-def EnterWin()
+def WinEnter()
   if Skip()
     if exists('w:lastfdm')
       unlet w:lastfdm
@@ -28,7 +28,7 @@ def EnterWin()
   endif
 enddef
 
-def LeaveWin()
+def WinLeave()
   if exists('w:predifffdm')
     if empty(&l:foldmethod) || &l:foldmethod == 'manual'
       &l:foldmethod = w:predifffdm
@@ -49,52 +49,67 @@ def LeaveWin()
 enddef
 
 def WinDo(command: string)
-  for winid in gettabinfo(0)[0].windows
-    win_execute(winid, 'keepjumps noautocmd ' .. command, 'silent!')
-  endfor
+  if !empty(getcmdwintype()) | return | endif
+
+  # Work around Vim bug.
+  # See https://groups.google.com/forum/#!topic/vim_dev/LLTw8JV6wKg
+  const curaltwin = winnr('#') ?? 1
+  const currwin = winnr()
+  if &scrollopt =~# '\<jump\>'
+    set scrollopt-=jump
+    defer execute('set scrollopt+=jump')
+  endif
+
+  # Work around Vim bug.
+  # See https://github.com/vim/vim/issues/4622#issuecomment-508985573
+  const currwinwidth = &winwidth
+  &winwidth = &winminwidth ?? 1
+  silent! execute 'keepjumps noautocmd windo ' .. command
+  silent! execute 'noautocmd ' .. curaltwin .. 'wincmd w'
+  silent! execute 'noautocmd ' .. currwin .. 'wincmd w'
+  &winwidth = currwinwidth
+
+  # for winid in gettabinfo(0)[0].windows
+  #   win_execute(winid, 'keepjumps noautocmd ' .. command)
+  # endfor
 enddef
 
 # WinEnter then TabEnter then BufEnter then BufWinEnter
 def UpdateWin()
-  const curwin: number = winnr()
-  WinDo($'if winnr() == {curwin} | LeaveWin() | endif')
-  WinDo($'if winnr() == {curwin} | EnterWin() | endif')
+  WinDo($'if winnr() == {winnr()} | WinLeave() | endif')
+  WinDo($'if winnr() == {winnr()} | WinEnter() | endif')
 enddef
 
 def UpdateBuf(feedback: bool)
   # skip if another session still loading
   if exists('g:SessionLoad') | return | endif
 
-  const curbuf: number = bufnr()
-  WinDo($'if bufnr() == {curbuf} | LeaveWin() | endif')
-  WinDo($'if bufnr() == {curbuf} | EnterWin() | endif')
+  WinDo($'if bufnr() == {bufnr()} | WinLeave() | endif')
+  WinDo($'if bufnr() == {bufnr()} | WinEnter() | endif')
 
-  if !feedback | return | endif
-
-  if !exists('w:lastfdm')
-    echomsg $"'{&l:foldmethod}' folds already continuously updated"
-  else
-    echomsg $"updated '{w:lastfdm}' folds"
+  if feedback
+    if !exists('w:lastfdm')
+      echomsg $"'{&l:foldmethod}' folds already continuously updated"
+    else
+      echomsg $"updated '{w:lastfdm}' folds"
+    endif
   endif
 enddef
 
 def UpdateTab()
   # skip if another session still loading
-  if exists('g:SessionLoad') | return | endif
-
-  WinDo('LeaveWin()')
-  WinDo('EnterWin()')
+  if !exists('g:SessionLoad')
+    WinDo('WinLeave()')
+    WinDo('WinEnter()')
+  endif
 enddef
 
 def Skip(): bool
-  if g:fastfold_force ||
-      line('$') <= g:fastfold_minlines ||
+  if !(g:fastfold_force || &l:foldmethod == 'syntax' || &l:foldmethod == 'expr') ||
       !&l:modifiable ||
       !empty(&l:buftype) ||
-      &l:foldmethod == 'syntax' ||
-      &l:foldmethod == 'expr' ||
-      !IsReasonable() ||
-      index(g:fastfold_skip_filetypes, &l:filetype) != -1 ||
+      line('$') <= g:fastfold_minlines ||
+      index(g:fastfold_skip_filetypes, &l:filetype) != -1
     return true
   endif
 
@@ -193,13 +208,10 @@ def Init()
   augroup END
 enddef
 
-augroup FastFold
-  autocmd!
-  if !v:vim_did_enter
-    autocmd VimEnter * Init()
-  else
-    Init()
-  endif
-augroup end
+if !v:vim_did_enter
+  autocmd VimEnter * ++once Init()
+else
+  Init()
+endif
 
 # vim: fdm=marker
